@@ -6,7 +6,17 @@
   "author": "Leon Pahole <leonnieen@gmail.com>",
   "license": "MIT",
   "dependencies": {
+    "bcrypt": "^3.0.7",
     "cors": "^2.8.5",
-    "express": "^4.17.1"
+    "dotenv": "^8.2.0",
+    "express": "^4.17.1",
+    "knex": "^0.20.4",
+    "pg": "^7.14.0"
+  },
+  "scripts": {
+    "start": "node app.js",
+    "migrate": "knex migrate:latest",
+    "unmigrate": "knex migrate:rollback",
+    "seed": "knex seed:run "
   }
 }
