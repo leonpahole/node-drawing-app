@@ -1,0 +1,5 @@
+apps:
+  - script: ./app.js
+    name: "api"
+    instances: 1
+    watch: true # disable on prod

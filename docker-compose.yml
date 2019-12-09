@@ -1,5 +1,14 @@
 version: "3"
 services:
+  api:
+    container_name: drawing_api
+    build: .
+    restart: always
+    ports:
+      - "${NODE_PORT:-3000}:3000"
+    depends_on:
+      - db
+
   db:
     container_name: drawing_db
     image: postgres
@@ -19,6 +28,8 @@ services:
       - ADMINER_DEFAULT_SERVER=db
     ports:
       - 8080:8080
+    depends_on:
+      - db
 
 volumes:
   dbdata:
