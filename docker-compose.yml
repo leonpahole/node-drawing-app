@@ -1,0 +1,24 @@
+version: "3"
+services:
+  db:
+    container_name: drawing_db
+    image: postgres
+    restart: always
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-root}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-root}
+      - POSTGRES_DB=${POSTGRES_DB:-drawing}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+
+  db_admin:
+    container_name: drawing_db_admin
+    image: adminer
+    restart: always
+    environment:
+      - ADMINER_DEFAULT_SERVER=db
+    ports:
+      - 8080:8080
+
+volumes:
+  dbdata:
