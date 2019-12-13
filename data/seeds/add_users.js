@@ -1,4 +1,4 @@
-const bcrypt = require("bcrypt");
+const auth = require("../../services/auth");
 
 exports.seed = knex => {
   return knex("users")
@@ -6,17 +6,14 @@ exports.seed = knex => {
     .then(async () => {
       const users = await Promise.all(
         [1, 2, 3, 4, 5].map(async i => {
-          const salt = await bcrypt.genSalt(10);
-
           return {
             id: i,
             username: "username" + i,
-            password_digest: await bcrypt.hash("password" + i, salt)
+            password_digest: await auth.hashPassword("password" + i)
           };
         })
       );
 
-      console.log(users);
       return knex("users").insert(users);
     });
 };

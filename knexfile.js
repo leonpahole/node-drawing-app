@@ -1,12 +1,33 @@
 require("dotenv").config();
 
+const {
+  POSTGRES_USER,
+  POSTGRES_PASSWORD,
+  POSTGRES_DB,
+  POSTGRES_URL
+} = process.env;
+
 module.exports = {
+  debug: true,
+  log: {
+    warn(message) {
+      console.log(message);
+    },
+    error(message) {
+      console.log(message);
+    },
+    deprecate(message) {
+      console.log(message);
+    },
+    debug(message) {
+      console.log(message);
+    }
+  },
   development: {
     client: "pg",
-    connection: `postgres://${process.env.POSTGRES_USER || "root"}:${
-      process.env.POSTGRES_PASSWORD
-    }@${process.env.POSTGRES_URL || "localhost"}/${process.env.POSTGRES_DB ||
-      "drawing"}`,
+    connection: `postgres://${POSTGRES_USER ||
+      "root"}:${POSTGRES_PASSWORD}@${POSTGRES_URL ||
+      "localhost"}/${POSTGRES_DB || "drawing"}`,
     migrations: {
       directory: "./data/migrations"
     },
@@ -15,13 +36,9 @@ module.exports = {
 
   testing: {
     client: "pg",
-    connection: {
-      host: process.POSTGRES_URL,
-      port: process.env.DB_PORT || 5432,
-      user: process.env.POSTGRES_USER || "root",
-      password: process.env.POSTGRES_PASSWORD,
-      database: process.env.POSTGRES_DB || "drawing"
-    },
+    connection: `postgres://${POSTGRES_USER ||
+      "root"}:${POSTGRES_PASSWORD}@${POSTGRES_URL ||
+      "localhost"}/${POSTGRES_DB || "drawing"}`,
     migrations: {
       directory: "./data/migrations"
     },
@@ -30,13 +47,9 @@ module.exports = {
 
   production: {
     client: "pg",
-    connection: {
-      host: process.POSTGRES_URL,
-      port: process.env.DB_PORT || 5432,
-      user: process.env.POSTGRES_USER || "root",
-      password: process.env.POSTGRES_PASSWORD,
-      database: process.env.POSTGRES_DB || "drawing"
-    },
+    connection: `postgres://${POSTGRES_USER ||
+      "root"}:${POSTGRES_PASSWORD}@${POSTGRES_URL ||
+      "localhost"}/${POSTGRES_DB || "drawing"}`,
     migrations: {
       directory: "./data/migrations"
     },

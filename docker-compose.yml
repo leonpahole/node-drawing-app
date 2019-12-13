@@ -2,12 +2,30 @@ version: "3"
 services:
   api:
     container_name: drawing_api
-    build: .
-    restart: always
+    build:
+      context: .
+      args:
+        - NODE_ENV=development
+        - PORT=3000
+    command: ../node_modules/.bin/nodemon --inspect=0.0.0.0:9229 ./bin/www
     ports:
-      - "${NODE_PORT:-3000}:3000"
-    depends_on:
-      - db
+      - "${EXTERNAL_NODE_PORT:-3000}:3000"
+      - "${EXTERNAL_DEBUG_PORT:-9229}:9229"
+      - "${EXTERNAL_DEBUG_2_PORT:-9230}:9230"
+    volumes:
+      - .:/opt/node_app/app:delegated
+      - ./package.json:/opt/node_app/package.json
+      - ./yarn.lock:/opt/node_app/yarn.lock
+      - notused:/opt/node_app/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - POSTGRES_USER=${POSTGRES_USER:-root}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-root}
+      - POSTGRES_DB=${POSTGRES_DB:-drawing}
+      - POSTGRES_URL=${POSTGRES_URL:-db}
+      - JWT_SECRET=${JWT_SECRET:-secret}
+      - JWT_ISSUER=${JWT_ISSUER:-drawing_app}
+      - DEBUG=knex:query
 
   db:
     container_name: drawing_db
@@ -33,3 +51,4 @@ services:
 
 volumes:
   dbdata:
+  notused:
