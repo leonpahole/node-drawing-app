@@ -81,8 +81,15 @@ router.post(
   }
 );
 
-router.get("/profile", auth.authenticate, async (req, res, next) => {
-  res.json(req.user);
+router.get("/me", auth.authenticate, async (req, res, next) => {
+  console.log(req.user);
+  res.json({
+    user: {
+      id: req.user.id,
+      username: req.user.attributes.username,
+      joined_room_id: req.user.attributes.joined_room_id
+    }
+  });
 });
 
 module.exports = router;

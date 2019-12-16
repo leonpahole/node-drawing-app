@@ -2,9 +2,14 @@
 
 const app = require("../index");
 
+const server = require("http").Server(app);
+
+const io = require("../socket")(server);
+
+app.set("io", io);
 const PORT = process.env.PORT || 3000;
 
-var server = app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Drawing backend listening on port ${PORT}`);
 });
 

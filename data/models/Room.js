@@ -7,6 +7,9 @@ const Room = db.model("Room", {
   },
   author() {
     return this.belongsTo("User", "author_id");
+  },
+  user_drawing() {
+    return this.belongsTo("User", "user_drawing_id");
   }
 });
 
