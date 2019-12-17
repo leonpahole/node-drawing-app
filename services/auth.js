@@ -30,12 +30,7 @@ module.exports = {
       try {
         const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
         user = await User.where({ id: decodedToken.id }).fetch({
-          withRelated: [
-            "room_joined",
-            "room_joined.author",
-            "room_joined.users"
-          ],
-          columns: ["id", "username", "joined_room_id"]
+          columns: ["id", "username"]
         });
         console.log(user);
       } catch (e) {

@@ -11,11 +11,11 @@ router.post(
     [Segments.BODY]: Joi.object().keys({
       username: Joi.string()
         .required()
-        .min(6)
+        .min(4)
         .max(20),
       password: Joi.string()
         .required()
-        .min(6)
+        .min(4)
     })
   }),
   async (req, res, next) => {
@@ -34,62 +34,77 @@ router.post(
       }).save();
 
       if (newUser == null) {
-        return next("User empty");
+        return next("User not found");
       }
 
       res.json({ token: auth.getJWTForUser(newUser) });
     } catch (e) {
       console.error("Register failed: ", e.toString());
-      next("Register failed");
+      next("Internal server error");
     }
   }
 );
 
-router.post(
-  "/login",
+router.post("/login", async (req, res, next) => {
+  try {
+    const user = await User.where({
+      username: req.body.username
+    }).fetch();
+
+    const isAuthenitcated = await auth.verifyPassword(
+      req.body.password,
+      user.attributes.password_digest
+    );
+
+    if (isAuthenitcated) {
+      res.json({ token: auth.getJWTForUser(user.attributes) });
+      return;
+    }
+  } catch (e) {
+    console.error("Login failed: ", e.toString());
+  }
+
+  next("Login failed");
+});
+
+router.get("/me", auth.authenticate, async (req, res, next) => {
+  res.json({
+    user: {
+      id: req.user.id,
+      username: req.user.attributes.username
+    }
+  });
+});
+
+router.get(
+  "/:user_id",
+  auth.authenticate,
   celebrate({
-    [Segments.BODY]: Joi.object().keys({
-      username: Joi.string()
-        .required()
-        .min(6)
-        .max(20),
-      password: Joi.string()
-        .required()
-        .min(6)
+    [Segments.PARAMS]: Joi.object().keys({
+      user_id: Joi.number()
+        .integer()
+        .min(1)
     })
   }),
   async (req, res, next) => {
     try {
-      const user = await User.where({
-        username: req.body.username
-      }).fetch();
+      const user = await User.where({ id: req.params.user_id }).fetch({
+        columns: [
+          "id",
+          "username",
+          "created_at",
+          "correct_guesses",
+          "games_played",
+          "points"
+        ]
+      });
 
-      const isAuthenitcated = await auth.verifyPassword(
-        req.body.password,
-        user.attributes.password_digest
-      );
-
-      if (isAuthenitcated) {
-        res.json({ token: auth.getJWTForUser(user.attributes) });
-        return;
-      }
+      res.json({ user });
     } catch (e) {
-      console.error("Login failed: ", e.toString());
+      console.log(`Fetch user error`, e);
+      next(`Internal server error`);
     }
-
-    next("Login failed");
   }
 );
-
-router.get("/me", auth.authenticate, async (req, res, next) => {
-  console.log(req.user);
-  res.json({
-    user: {
-      id: req.user.id,
-      username: req.user.attributes.username,
-      joined_room_id: req.user.attributes.joined_room_id
-    }
-  });
-});
 
 module.exports = router;

@@ -8,7 +8,6 @@ const {
 } = process.env;
 
 module.exports = {
-  debug: true,
   log: {
     warn(message) {
       console.log(message);

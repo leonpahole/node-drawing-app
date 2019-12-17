@@ -4,15 +4,19 @@ const socketioJwt = require("socketio-jwt");
 
 const util = require("./services/randomWord");
 
-const SECONDS_FOR_ROUND = 20;
+const NEXT_ROUND_COUNTDOWN_SECONDS = 5;
+const SECONDS_FOR_ROUND = 10;
 const MIN_PLAYERS_TO_START_GAME = 2;
+const MAX_PLAYERS_IN_ROOM = 8;
+const GUESS_POINTS_REWARD = 100;
+const MAX_POINTS = 300;
+const MINIMUM_POINTS = 10;
 
 let roomData = {};
 
 const pickNextDrawingMember = members => {
   let membersToDrawRemaining = false;
 
-  console.log(members);
   for (let i = 0; i < members.length; i++) {
     if (members[i].hasDrawn === false) {
       membersToDrawRemaining = true;
@@ -31,6 +35,10 @@ const pickNextDrawingMember = members => {
 };
 
 const pickAttributesFromUser = user => {
+  if (user == null) {
+    return null;
+  }
+
   return {
     id: user.id,
     username: user.username,
@@ -44,6 +52,34 @@ module.exports = server => {
   const rooms = io.of("/rooms");
   const room = io.of("/room");
 
+  const getRoom = (room, gameData) => {
+    return {
+      id: room.id,
+      name: room.attributes.name,
+      author: room.relations.author,
+      status: gameData ? gameData.status : null,
+      members: gameData
+        ? gameData.members.map(m => pickAttributesFromUser(m))
+        : [],
+      userDrawing: gameData
+        ? pickAttributesFromUser(gameData.drawingMember)
+        : null
+    };
+  };
+
+  const getRoomArray = async data => {
+    const rooms = await Room.forge()
+      .orderBy("created_at", "DESC")
+      .fetchAll({
+        withRelated: [{ author: qb => qb.columns("id", "username") }]
+      });
+
+    return rooms.map(room => {
+      const gameData = data[room.id];
+      return getRoom(room, gameData);
+    });
+  };
+
   rooms
     .on(
       "connection",
@@ -55,15 +91,10 @@ module.exports = server => {
     .on("authenticated", async socket => {
       console.log(socket.decoded_token.username + " has conected");
 
-      const rooms = await Room.forge()
-        .orderBy("created_at", "DESC")
-        .fetchAll({
-          withRelated: [
-            { users: qb => qb.columns("id", "username", "joined_room_id") },
-            { author: qb => qb.columns("id", "username") }
-          ]
-        });
+      const rooms = await getRoomArray(roomData);
 
+      console.log("emitting rooms");
+      console.log(rooms);
       socket.emit("rooms", rooms);
     });
 
@@ -78,6 +109,14 @@ module.exports = server => {
     .on("authenticated", async socket => {
       /* get room to join from query */
       socket.joinedRoomID = socket.handshake.query.roomID;
+
+      if (
+        roomData[socket.joinedRoomID] &&
+        roomData[socket.joinedRoomID].members.length === MAX_PLAYERS_IN_ROOM
+      ) {
+        socket.disconnect();
+        return;
+      }
 
       if (socket.joinedRoomID) {
         /* get user from the socket */
@@ -106,40 +145,6 @@ module.exports = server => {
         /* join user to the room */
         socket.join(socket.joinedRoomID);
 
-        /* create room game data in memory if not created yet */
-        if (roomData[socket.joinedRoomID] == null) {
-          roomData[socket.joinedRoomID] = {
-            members: [socket.connectedUser]
-          };
-        } else {
-          /* add user to members if room created */
-          roomData[socket.joinedRoomID].members.push(socket.connectedUser);
-        }
-
-        io.of("rooms").emit("userJoined", {
-          roomID: socket.joinedRoomID,
-          user: pickAttributesFromUser(socket.connectedUser)
-        });
-
-        socket.to(socket.joinedRoomID).emit("userJoined", {
-          user: pickAttributesFromUser(socket.connectedUser)
-        });
-
-        console.log("EMITTING MEMBERS");
-        console.log(roomData);
-        /* send members of room to user */
-        socket.emit(
-          "members",
-          roomData[socket.joinedRoomID].members.map(m => {
-            return pickAttributesFromUser(m);
-          })
-        );
-
-        /* draw handler: emit coordinates to all in the room except myself */
-        socket.on("draw", coordinates => {
-          socket.to(socket.joinedRoomID).emit("draw", coordinates);
-        });
-
         /* system message is identified by type: system */
         const sendSystemMessage = (roomID, message) => {
           io.of("room")
@@ -163,10 +168,30 @@ module.exports = server => {
                 socket.joinedRoomID,
                 'Game has finished. Press "start game" to start a new game.'
               );
+              io.of("rooms").emit("gameEnded", {
+                roomID: Number(socket.joinedRoomID)
+              });
               io.of("room")
                 .to(socket.joinedRoomID)
                 .emit("gameEnded", {});
+              roomData[socket.joinedRoomID].status = "GAME_OVER";
               roomData[socket.joinedRoomID].gameStarted = false;
+              roomData[socket.joinedRoomID].drawingMember = null;
+              roomData[socket.joinedRoomID].members = roomData[
+                socket.joinedRoomID
+              ].members.map(m => {
+                return { ...m, hasDrawn: false };
+              });
+
+              await Promise.all(
+                roomData[socket.joinedRoomID].members.map(async m => {
+                  await User.query()
+                    .where("id", m.id)
+                    .increment("games_played", 1);
+                })
+              );
+
+              return;
             }
 
             /* tell everyone who new user to guess is */
@@ -175,8 +200,18 @@ module.exports = server => {
               "Next user: " + nextDrawingMember.username
             );
 
+            roomData[socket.joinedRoomID].status = "WAITING_ROUND";
+
+            io.of("rooms").emit("roundWaiting", {
+              roomID: Number(socket.joinedRoomID)
+            });
+
+            io.of("room")
+              .to(socket.joinedRoomID)
+              .emit("roundWaiting");
+
             await new Promise(resolve => {
-              let secondsBeforeStart = 5;
+              let secondsBeforeStart = NEXT_ROUND_COUNTDOWN_SECONDS;
               const interval = setInterval(() => {
                 if (secondsBeforeStart <= 0) {
                   clearInterval(interval);
@@ -192,9 +227,12 @@ module.exports = server => {
 
             const randomWord = util.randomWord();
 
+            roomData[socket.joinedRoomID].status = "ROUND_IN_PROGRESS";
+
             /* signal that round has started */
             io.of("rooms").emit("roundStarted", {
-              roomID: socket.joinedRoomID
+              roomID: Number(socket.joinedRoomID),
+              userDrawing: pickAttributesFromUser(nextDrawingMember)
             });
 
             /* send start signal to everyone except user that is drawing */
@@ -241,6 +279,54 @@ module.exports = server => {
           }
         };
 
+        /* create room game data in memory if not created yet */
+        if (roomData[socket.joinedRoomID] == null) {
+          roomData[socket.joinedRoomID] = {
+            members: [socket.connectedUser],
+            status: "NOT_STARTED"
+          };
+        } else {
+          /* add user to members if room created */
+          roomData[socket.joinedRoomID].members.push(socket.connectedUser);
+        }
+
+        io.of("rooms").emit("userJoined", {
+          roomID: Number(socket.joinedRoomID),
+          user: pickAttributesFromUser(socket.connectedUser)
+        });
+
+        socket.to(socket.joinedRoomID).emit("userJoined", {
+          user: pickAttributesFromUser(socket.connectedUser)
+        });
+
+        /* send members of room to user */
+        socket.emit("room", {
+          members: roomData[socket.joinedRoomID].members.map(m =>
+            pickAttributesFromUser(m)
+          ),
+          status: roomData[socket.joinedRoomID].status,
+          userDrawing: pickAttributesFromUser(
+            roomData[socket.joinedRoomID].drawingMember
+          ),
+          wordDrawing:
+            roomData[socket.joinedRoomID].drawingMember &&
+            roomData[socket.joinedRoomID].drawingMember.id ===
+              socket.connectedUser.id
+              ? roomData[socket.joinedRoomID].word
+              : null
+        });
+
+        /* draw handler: emit coordinates to all in the room except myself */
+        socket.on("draw", coordinates => {
+          socket.to(socket.joinedRoomID).emit("draw", coordinates);
+        });
+
+        if (
+          roomData[socket.joinedRoomID].members.length === MAX_PLAYERS_IN_ROOM
+        ) {
+          await startGameRound();
+        }
+
         const gameRoundInterval = async roomID => {
           const gameTime = roomData[roomID].gameTime;
 
@@ -263,35 +349,102 @@ module.exports = server => {
 
           const correctWord = roomData[roomID].word;
 
+          let receivedPoints = 0,
+            receivedPointsForDrawingUser = 0;
+
           if (!winner) {
             sendSystemMessage(
               roomID,
               "Round ended without winner. The word was " + correctWord
             );
           } else {
+            /* add fixed points just for guessing */
+            receivedPoints = GUESS_POINTS_REWARD;
+
+            const secondsRemaining =
+              SECONDS_FOR_ROUND - roomData[roomID].gameTime;
+
+            /* add proportional points */
+            receivedPoints =
+              GUESS_POINTS_REWARD *
+              (roomData[roomID].gameTime / SECONDS_FOR_ROUND);
+
+            if (receivedPoints < MINIMUM_POINTS) {
+              receivedPoints = MINIMUM_POINTS;
+            }
+
+            /* round to nearest 10 */
+            receivedPoints = Math.ceil(receivedPoints / 10) * 10;
+            receivedPointsForDrawingUser = Math.ceil(receivedPoints / 20) * 10;
+
+            if (winner.points + receivedPoints > MAX_POINTS) {
+              receivedPoints = MAX_POINTS - winner.points;
+            }
+
+            if (
+              roomData[roomID].drawingMember.points +
+                receivedPointsForDrawingUser >
+              MAX_POINTS
+            ) {
+              receivedPointsForDrawingUser =
+                MAX_POINTS - roomData[roomID].drawingMember.points;
+            }
+
+            try {
+              await User.query()
+                .where("id", winner.id)
+                .increment("points", receivedPoints);
+              await User.query()
+                .where("id", winner.id)
+                .increment("correct_guesses", 1);
+              await User.query()
+                .where("id", roomData[roomID].drawingMember.id)
+                .increment("points", receivedPointsForDrawingUser);
+
+              winner.points += receivedPoints;
+              roomData[
+                roomID
+              ].drawingMember.points += receivedPointsForDrawingUser;
+            } catch (e) {
+              console.error(`Error saving points ${e}`);
+            }
+
             sendSystemMessage(
               roomID,
               "User " +
                 winner.username +
                 " correctly guessed the word " +
-                correctWord
+                correctWord +
+                " after " +
+                secondsRemaining +
+                " seconds and received " +
+                receivedPoints +
+                " points"
             );
           }
 
           /* tell everyone that round has ended */
+          io.of("rooms").emit("roundEnded", {
+            roomID: Number(roomID),
+            userGuessed: winner ? pickAttributesFromUser(winner) : null,
+            userDrawing: pickAttributesFromUser(roomData[roomID].drawingMember),
+            receivedPoints,
+            receivedPointsForDrawingUser
+          });
+
           io.of("room")
             .to(roomID)
             .emit("roundEnded", {
               correctWord,
-              userGuessed: winner
-                ? {
-                    id: winner.id,
-                    username: winner.username
-                  }
-                : null,
-              points: 30
+              userGuessed: winner ? pickAttributesFromUser(winner) : null,
+              userDrawing: pickAttributesFromUser(
+                roomData[roomID].drawingMember
+              ),
+              receivedPoints,
+              receivedPointsForDrawingUser
             });
 
+          /* clear canvas */
           io.of("room")
             .to(roomID)
             .emit("draw", [{ x: -2, y: -2 }]);
@@ -362,24 +515,12 @@ module.exports = server => {
           ].members.filter(m => m.id !== socket.connectedUser.id);
 
           io.of("rooms").emit("userLeft", {
-            roomID: socket.joinedRoomID,
+            roomID: Number(socket.joinedRoomID),
             userID: socket.connectedUser.id
           });
           io.of("room")
             .to(socket.joinedRoomID)
             .emit("userLeft", { userID: socket.connectedUser.id });
-
-          /*
-          await User.where({
-            id: user.id
-          }).save(
-            {
-              joined_room_id: null,
-              joined_room_time: null
-            },
-            { patch: true }
-          );
-          */
         });
       }
     });
